@@ -1,0 +1,205 @@
+Setting up openvpn
+
+Comprehensive Guide to Setting Up OpenVPN
+Prerequisites
+Ubuntu server with sudo access.
+OpenVPN installed on both the server and the client machine.
+Easy-RSA installed on the server to generate certificates and keys.
+Server Configuration Steps
+
+Step 1: Install OpenVPN and Easy-RSA
+Update your package list:
+
+bash
+sudo apt update
+Install OpenVPN and Easy-RSA:
+
+bash
+sudo apt install openvpn easy-rsa -y
+Step 2: Set Up the Public Key Infrastructure (PKI)
+Copy Easy-RSA scripts:
+
+bash
+make-cadir ~/openvpn-ca
+cd ~/openvpn-ca
+Edit the vars file:
+
+bash
+nano vars
+Update the following lines with your information:
+
+plaintext
+set_var EASYRSA_REQ_COUNTRY    "US"
+set_var EASYRSA_REQ_PROVINCE   "California"
+set_var EASYRSA_REQ_CITY       "San Francisco"
+set_var EASYRSA_REQ_ORG        "MyOrg"
+set_var EASYRSA_REQ_EMAIL      "email@myorg.com"
+set_var EASYRSA_REQ_OU         "MyOU"
+Build the CA:
+
+bash
+./easyrsa init-pki
+./easyrsa build-ca
+Generate Server Certificate and Key:
+
+bash
+./easyrsa gen-req server nopass
+./easyrsa sign-req server server
+Generate Diffie-Hellman Parameters:
+
+bash
+./easyrsa gen-dh
+Generate Client Certificate and Key:
+
+bash
+./easyrsa gen-req client1 nopass
+./easyrsa sign-req client client1
+Copy the necessary files to OpenVPN directory:
+
+bash
+sudo cp pki/ca.crt pki/issued/server.crt pki/private/server.key pki/dh.pem /etc/openvpn/
+sudo cp pki/issued/client1.crt pki/private/client1.key pki/ca.crt ~/client-configs/
+
+Step 3: Configure the OpenVPN Server
+Create the OpenVPN server configuration file:
+
+bash
+sudo nano /etc/openvpn/server.conf
+Use the following configuration:
+plaintext
+port 1194
+proto udp
+dev tun
+ca ca.crt
+cert server.crt
+key server.key
+dh dh.pem
+topology subnet
+server 10.8.0.0 255.255.255.0
+ifconfig-pool-persist ipp.txt
+push "redirect-gateway def1 bypass-dhcp"
+push "dhcp-option DNS 8.8.8.8"
+push "dhcp-option DNS 8.8.4.4"
+keepalive 10 120
+cipher AES-256-CBC
+auth SHA256
+user nobody
+group nogroup
+persist-key
+persist-tun
+status openvpn-status.log
+verb 3
+explicit-exit-notify 1
+Step 4: Enable IP Forwarding and Set Up UFW
+Enable IP forwarding:
+
+bash
+sudo nano /etc/sysctl.conf
+Uncomment the line:
+
+plaintext
+net.ipv4.ip_forward=1
+Apply the changes:
+
+bash
+sudo sysctl -p
+Configure UFW to allow OpenVPN traffic:
+
+bash
+sudo nano /etc/ufw/before.rules
+Add the following lines above the *filter line:
+
+plaintext
+*nat
+:POSTROUTING ACCEPT [0:0]
+-A POSTROUTING -s 10.8.0.0/8 -o ens5 -j MASQUERADE
+COMMIT
+Then, modify /etc/default/ufw to change the default forward policy:
+
+bash
+sudo nano /etc/default/ufw
+Set:
+
+plaintext
+DEFAULT_FORWARD_POLICY="ACCEPT"
+Allow OpenVPN and SSH through the firewall:
+
+bash
+sudo ufw allow 1194/udp
+sudo ufw allow OpenSSH
+sudo ufw enable
+Step 5: Start the OpenVPN Service
+Start and enable OpenVPN:
+bash
+sudo systemctl start openvpn@server
+sudo systemctl enable openvpn@server
+Client Configuration Steps
+Create the client configuration file:
+bash
+nano ~/client-configs/client.ovpn
+Use the following configuration:
+plaintext
+client
+dev tun
+proto udp
+remote <server-ip> 1194
+resolv-retry infinite
+nobind
+user nobody
+group nogroup
+persist-key
+persist-tun
+remote-cert-tls server
+cipher AES-256-CBC
+auth SHA256
+verb 3
+
+<ca>
+-----BEGIN CERTIFICATE-----
+(CA certificate content)
+-----END CERTIFICATE-----
+</ca>
+
+<cert>
+-----BEGIN CERTIFICATE-----
+(Client certificate content)
+-----END CERTIFICATE-----
+</cert>
+
+<key>
+-----BEGIN PRIVATE KEY-----
+(Client private key content)
+-----END PRIVATE KEY-----
+</key>
+Testing and Troubleshooting
+Reconnect the OpenVPN Client:
+
+On the client machine, use the OpenVPN client to connect using the client.ovpn configuration file.
+Test Connectivity:
+
+Ping an external IP:
+bash
+ping 8.8.8.8
+Check public IP:
+bash
+curl ifconfig.me
+Check Logs:
+
+Server logs:
+bash
+sudo journalctl -u openvpn@server
+Client logs: Check the OpenVPN client logs for any errors.
+Common Issues and Fixes
+Permission Denied:
+Ensure the key files have the correct permissions:
+
+bash
+sudo chown nobody:nogroup /etc/openvpn/server.key
+sudo chmod 600 /etc/openvpn/server.key
+TLS Error:
+Ensure that the CA, server, and client certificates, as well as keys, are correctly generated and match between server and client.
+
+IP Forwarding Issues:
+Ensure IP forwarding is enabled and UFW rules are correctly applied.
+
+By following this guide, you should be able to set up and replicate the OpenVPN server and client configuration successfully.
